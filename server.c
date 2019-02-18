@@ -75,7 +75,7 @@ int main(int argc, char const *argv[])
         {
             error("Socket reading failed");
         }
-        printf("Client : %s\n",stream);
+        printf("Client : %s",stream);
         bzero(stream,max_streamlen);
         fgets(stream, max_streamlen, stdin);
 
