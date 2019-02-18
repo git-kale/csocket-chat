@@ -8,7 +8,7 @@
 
 //Negative value of fd signifies error returned
 
-
+#define TRUE 1
 void error(const char *message)
 {
     //If error occures print error message & exit 
@@ -21,12 +21,13 @@ int main(int argc, char const *argv[])
     if (argc < 2) 
     {
         // If no ports are specified terminate connection
-        printf("No ports specified.\nConnection failed\n");
+        printf("Usage : ./server <port>\n");
         exit(1);
     }
     
-    int sockfd, newsockfd, portno, n;
-    char stream[255];
+    int sockfd, newsockfd, portno, max_conn, max_streamlen;
+    max_streamlen = 255;
+    char stream[max_streamlen];
 
     //Sockaddr_in describes internet sock address defined in netinet/in.h
     struct sockaddr_in serv_addr , cli_addr;
@@ -39,7 +40,7 @@ int main(int argc, char const *argv[])
         error("Socket creation failed");
     }
 
-    //Clear any data residing in serv_addr
+    //Shall place n zero-valued bytes in the area pointed to by s.
     bzero((char*) &serv_addr , sizeof(serv_addr));
     portno = atoi(argv[1]);
 
@@ -52,4 +53,44 @@ int main(int argc, char const *argv[])
     {
         error("Socket binding failed");
     }
+
+    // max_conn signifies maximum no. of connection queued before others are refused.  
+    max_conn = 4;
+    listen(sockfd, max_conn);
+    clilen = sizeof(cli_addr);
+
+    newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
+
+    if (newsockfd < 0)
+    {
+        error("Socket acceptance failed");
+    }
+
+    while(TRUE)
+    {
+        bzero(stream, max_streamlen);
+        int streamlen = read(newsockfd,stream, max_streamlen);
+
+        if(streamlen < 0)
+        {
+            error("Socket reading failed");
+        }
+        printf("Client : %s\n",stream);
+        bzero(stream,max_streamlen);
+        fgets(stream, max_streamlen, stdin);
+
+        streamlen = write(newsockfd,stream,strlen(stream));
+        if (streamlen < 0) 
+        {
+            error("Socket writing failed");
+        }
+        int i = strncmp("Bye",stream, 3);
+        if (i == 0)
+        {
+            break;
+        }
+    }
+    close(newsockfd);
+    close(sockfd);
+    return 0;
 }
