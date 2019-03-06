@@ -14,19 +14,83 @@
 //Negative value of fd signifies error returned
 
 #define TRUE 1
-struct data_packet
+typedef enum
+{
+    CONNECT,
+    DISCONNECT,
+    SUCCESS,
+    GET_USERS,
+    SET_USERNAME,
+    ERROR,
+    LIMIT_EXCEEDED,
+    PUBLIC_MESSAGE,
+    PRIVATE_MESSAGE,
+    USERNAME_ERROR
+} status;
+
+typedef struct message
+{
+    status flag;
+    char username[36];
+    char data[256];
+} message;
+
+typedef struct connection_info
 {
     /* data */
-    int version;
-    int length;
-    char payload[150];
-};
+    int socket;
+    struct sockaddr_in address;
+    char username[36];
+} connection_info;
 
 void error(const char *message)
 {
     //If error occures print error message & exit
     perror(message);
     exit(1);
+}
+
+void trim_newline(char *text)
+{
+    int len = strlen(text) - 1;
+    if (text[len] == '\n')
+    {
+        text[len] = '\0';
+    }
+}
+
+void get_username(char *username)
+{
+    while (TRUE)
+    {
+        printf("Enter a username: ");
+        fflush(stdout);
+        memset(username, 0, 1000);
+        fgets(username, 36, stdin);
+        trim_newline(username);
+
+        if (strlen(username) > 30)
+        {
+
+            puts("Username must be 36 characters or less.");
+        }
+        else
+        {
+            break;
+        }
+    }
+}
+
+void set_username(connection_info *connection)
+{
+    message msg;
+    msg.flag = SET_USERNAME;
+    strncpy(msg.username, connection->username, 36);
+
+    if (send(connection->socket, (void *)&msg, sizeof(msg), 0) < 0)
+    {
+        error("Send failed");
+    }
 }
 
 int main(int argc, char *argv[])
@@ -47,7 +111,7 @@ int main(int argc, char *argv[])
     {
         portno = atoi(argv[2]);
         strcpy(hostname, "192.168.2.16");
-        printf("%s",hostname);
+        printf("%s", hostname);
     }
     else
     {
@@ -70,7 +134,7 @@ int main(int argc, char *argv[])
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portno);
-    serv_addr.sin_addr.s_addr = inet_addr(hostname); 
+    serv_addr.sin_addr.s_addr = inet_addr(hostname);
 
     if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
