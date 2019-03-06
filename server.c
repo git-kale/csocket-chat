@@ -7,6 +7,7 @@
 #include <string.h>     //Contains function related to string manipulation
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <sys/select.h>
 
 #define PORT 0
 #define CLIENT_LIMIT 5
@@ -19,7 +20,8 @@ typedef enum
     CONNECT,
     DISCONNECT,
     SUCCESS,
-    ERROR
+    ERROR,
+    TOO_FULL
 } status;
 
 typedef struct message
@@ -43,6 +45,28 @@ typedef struct connection_info
     struct sockaddr_in address;
     char username[36];
 } connection_info;
+
+int fd_maximum(fd_set *fd, connection_info *server_info, connection_info reciever[])
+{
+    FD_ZERO(fd);
+    FD_SET(STDIN_FILENO, fd);
+    FD_SET(server_info->socket, fd);
+
+    int max_fd = server_info->socket;
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        if (reciever[i].socket > 0)
+        {
+            FD_SET(reciever[i].socket, fd);
+            if (reciever[i].socket > max_fd)
+            {
+                max_fd = reciever[i].socket;
+            }
+        }
+    }
+    return max_fd;
+}
 
 void error(const char *message)
 {
@@ -155,6 +179,19 @@ void handle_new_connection(connection_info *server_info, connection_info recieve
             limit_exceeded(new_socket);
         }
     }
+}
+
+void limit_exceeded(int socket)
+{
+    message limit_exceeded;
+    limit_exceeded.flag = TOO_FULL;
+
+    if (send(socket, &limit_exceeded, sizeof(limit_exceeded), 0) < 0)
+    {
+        error("Send failed");
+    }
+
+    close(socket);
 }
 
 int main(int argc, char const *argv[])
