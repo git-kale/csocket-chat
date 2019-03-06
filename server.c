@@ -9,10 +9,25 @@
 #include <ifaddrs.h>
 
 #define PORT 0
+#define CLIENT_LIMIT 5
 
 //Negative value of fd signifies error returned
 
 #define TRUE 1
+typedef enum
+{
+    CONNECT,
+    DISCONNECT,
+    SUCCESS,
+    ERROR
+} status;
+
+typedef struct message
+{
+    status flag;
+    char username[36];
+    char data[256];
+} message;
 
 struct data_packet
 {
@@ -64,6 +79,48 @@ void start_server(connection_info *server_info, int port)
     }
     printf("Waiting for incoming connections...\n");
 }
+
+void start_connection(connection_info *reciever, int sender)
+{
+    message msg;
+    msg.flag = CONNECT;
+    strncpy(msg.username, reciever[sender].username, 36);
+    int i = 0;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        if (reciever[i].socket != 0)
+        {
+            if (send(reciever[i].socket, &msg, sizeof(msg), 0) < 0)
+            {
+                error("Sending failed");
+            }
+            else if (i == sender)
+            {
+                msg.flag = SUCCESS;
+            }
+        }
+    }
+}
+
+void stop_connection(connection_info *reciever, char *username)
+{
+    message msg;
+    msg.flag = DISCONNECT;
+    strncpy (msg.username, username, 36);
+    int i = 0;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+      {
+          if (reciever[i].socket != 0)
+            {
+                if (send (reciever[i].socket, &msg, sizeof (msg), 0) < 0)
+                  {
+                      perror ("Send failed");
+                      exit (1);
+                  }
+            }
+}
+}
+
 
 int main(int argc, char const *argv[])
 {
