@@ -21,12 +21,48 @@ struct data_packet
     int length;
     char payload[150];
 };
+typedef struct connection_info
+{
+    /* data */
+    int socket;
+    struct sockaddr_in address;
+    char username[36];
+} connection_info;
 
 void error(const char *message)
 {
     //If error occures print error message & exit
     perror(message);
     exit(1);
+}
+
+void start_server(connection_info *server_info, int port)
+{
+    if ((server_info->socket = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        error("Socket creation failed");
+    }
+
+    server_info->address.sin_family = AF_INET;
+    server_info->address.sin_addr.s_addr = INADDR_ANY;
+    server_info->address.sin_port = htons(port);
+
+    if (bind(server_info->socket, (struct sockaddr *)&server_info->address, sizeof(server_info->address)) < 0)
+    {
+        error("Socket binding failed");
+    }
+    const int optVal = 1;
+    const socklen_t optLen = sizeof(optVal);
+    if (setsockopt(server_info->socket, SOL_SOCKET, SO_REUSEADDR, (void *)&optVal, optLen) < 0)
+    {
+        error("Socket option setting failed");
+    }
+
+    if (listen(server_info->socket, 3) < 0)
+    {
+        error("Socket listening failed");
+    }
+    printf("Waiting for incoming connections...\n");
 }
 
 int main(int argc, char const *argv[])
@@ -125,7 +161,7 @@ int main(int argc, char const *argv[])
         {
             error("Socket reading failed");
         }
-        printf("Client : %s%s", aPacket.payload,"PRINTED");
+        printf("Client : %s%s", aPacket.payload, "PRINTED");
 
         while (TRUE)
         {
@@ -146,9 +182,9 @@ int main(int argc, char const *argv[])
         }
 
         aPacket.version = htons(457);
-        aPacket.length  = htons(strlen(stream));
+        aPacket.length = htons(strlen(stream));
 
-        strcpy(aPacket.payload ,stream);
+        strcpy(aPacket.payload, stream);
 
         streamlen = write(newsockfd, stream, strlen(stream));
         if (streamlen < 0)
