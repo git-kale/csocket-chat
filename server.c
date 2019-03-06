@@ -36,13 +36,6 @@ typedef struct message
     char data[256];
 } message;
 
-struct data_packet
-{
-    /* data */
-    int version;
-    int length;
-    char payload[150];
-};
 typedef struct connection_info
 {
     /* data */
@@ -80,7 +73,7 @@ void error(const char *message)
     exit(1);
 }
 
-void send_user_list(connection_info *clients, int receiver)
+void send_user_list(connection_info *reciever, int recv_no)
 {
     message msg;
     msg.flag = GET_USERS;
@@ -90,14 +83,14 @@ void send_user_list(connection_info *clients, int receiver)
     for (i = 0; i < CLIENT_LIMIT; i++)
     {
 
-        if (clients[i].socket != 0)
+        if (reciever[i].socket != 0)
         {
-            list = stpcpy(list, clients[i].username);
+            list = stpcpy(list, reciever[i].username);
             list = stpcpy(list, "\n");
         }
     }
 
-    if (send(clients[receiver].socket, &msg, sizeof(msg), 0) < 0)
+    if (send(reciever[recv_no].socket, &msg, sizeof(msg), 0) < 0)
     {
         error("Send failed");
     }
@@ -372,110 +365,45 @@ int main(int argc, char const *argv[])
     freeifaddrs(ifap);
 
     printf("Welcome to Chat!\n");
+    fd_set file_descriptors;
 
-    int sockfd, newsockfd, portno, max_conn, max_streamlen;
-    max_streamlen = 255;
-    char stream[max_streamlen];
+    connection_info server_info;
+    connection_info reciever[CLIENT_LIMIT];
 
-    //Sockaddr_in describes internet sock address defined in netinet/in.h
-    struct sockaddr_in serv_addr, cli_addr;
-    socklen_t clientLen;
-
-    //AF_INET : IPv4 connection
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
     {
-        error("Socket creation failed");
+        reciever[i].socket = 0;
     }
 
-    //Shall place n zero-valued bytes in the area pointed to by s.
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    portno = atoi(argv[1]);
-
-    //INADDR_ANY : Address to accept any incoming message
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno);
-
-    if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    {
-        error("Socket binding failed");
-    }
-
-    socklen_t serverLen = sizeof(serv_addr);
-
-    if (getsockname(sockfd, (struct sockaddr *)&serv_addr, &serverLen) == -1)
-    {
-        error("ERROR on getsockname()\n");
-    }
-    else
-    {
-        printf("Waiting for connection on %s port %d\n", addr, ntohs(serv_addr.sin_port));
-    }
-
-    // max_conn signifies maximum no. of connection queued before others are refused.
-    max_conn = 4;
-    listen(sockfd, max_conn);
-    clientLen = sizeof(cli_addr);
-
-    newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clientLen);
-
-    if (newsockfd < 0)
-    {
-        error("Socket acceptance failed");
-    }
-
-    printf("You are server, be polite recieve first");
-
+    start_server(&server_info, atoi(argv[1]));
     while (TRUE)
     {
-        struct data_packet aPacket;
-        bzero(aPacket.payload, 150);
-        bzero(stream, max_streamlen);
+        int max_fd = fd_maximum(&file_descriptors, &server_info, reciever);
 
-        int streamlen = read(newsockfd, stream, max_streamlen);
-
-        if (streamlen < 0)
+        if (select(max_fd + 1, &file_descriptors, NULL, NULL, NULL) < 0)
         {
-            error("Socket reading failed");
+            perror("Select Failed");
+            stop_server(reciever);
         }
-        printf("Client : %s%s", aPacket.payload, "PRINTED");
 
-        while (TRUE)
+        if (FD_ISSET(STDIN_FILENO, &file_descriptors))
         {
-            printf("Server : ");
-            bzero(stream, max_streamlen);
-            bzero(aPacket.payload, 150);
-            fgets(stream, max_streamlen, stdin);
+            handle_user_input(reciever);
+        }
 
-            if (strlen(stream) > 150)
+        if (FD_ISSET(server_info.socket, &file_descriptors))
+        {
+            handle_new_connection(&server_info, reciever);
+        }
+
+        for (i = 0; i < CLIENT_LIMIT; i++)
+        {
+            if (reciever[i].socket > 0 && FD_ISSET(reciever[i].socket, &file_descriptors))
             {
-                printf("Error: Input too long.\n");
-                continue;
+                handle_client_message(reciever, i);
             }
-            else
-            {
-                break;
-            }
-        }
-
-        aPacket.version = htons(457);
-        aPacket.length = htons(strlen(stream));
-
-        strcpy(aPacket.payload, stream);
-
-        streamlen = write(newsockfd, stream, strlen(stream));
-        if (streamlen < 0)
-        {
-            error("Socket writing failed");
-        }
-        int i = strncmp("Bye", stream, 3);
-        if (i == 0)
-        {
-            break;
         }
     }
-    close(newsockfd);
-    close(sockfd);
     return 0;
 }
