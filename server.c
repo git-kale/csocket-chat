@@ -80,7 +80,17 @@ void start_server(connection_info *server_info, int port)
     printf("Waiting for incoming connections...\n");
 }
 
-void start_connection(connection_info *reciever, int sender)
+void stop_server(connection_info server_info[])
+{
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        close(server_info[i].socket);
+    }
+    exit(0);
+}
+
+void start_connection_message(connection_info *reciever, int sender)
 {
     message msg;
     msg.flag = CONNECT;
@@ -102,25 +112,50 @@ void start_connection(connection_info *reciever, int sender)
     }
 }
 
-void stop_connection(connection_info *reciever, char *username)
+void stop_connection_message(connection_info *reciever, char *username)
 {
     message msg;
     msg.flag = DISCONNECT;
-    strncpy (msg.username, username, 36);
+    strncpy(msg.username, username, 36);
     int i = 0;
     for (i = 0; i < CLIENT_LIMIT; i++)
-      {
-          if (reciever[i].socket != 0)
+    {
+        if (reciever[i].socket != 0)
+        {
+            if (send(reciever[i].socket, &msg, sizeof(msg), 0) < 0)
             {
-                if (send (reciever[i].socket, &msg, sizeof (msg), 0) < 0)
-                  {
-                      perror ("Send failed");
-                      exit (1);
-                  }
+                perror("Send failed");
+                exit(1);
             }
-}
+        }
+    }
 }
 
+void handle_new_connection(connection_info *server_info, connection_info reciever[])
+{
+    int new_socket;
+    int address_length;
+    new_socket = accept(server_info->socket, (struct sockaddr *)&server_info->address, (socklen_t *)&address_length);
+
+    if (new_socket < 0)
+    {
+        error("Socket acceptance failed");
+    }
+
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        if (reciever[i].socket == 0)
+        {
+            reciever[i].socket = new_socket;
+            break;
+        }
+        else if (i == CLIENT_LIMIT - 1)
+        {
+            limit_exceeded(new_socket);
+        }
+    }
+}
 
 int main(int argc, char const *argv[])
 {
