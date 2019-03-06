@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <ifaddrs.h>
@@ -298,97 +299,42 @@ void handle_server_message(connection_info *connection)
 
 int main(int argc, char *argv[])
 {
-    if (argc < 3)
+
+    connection_info connection;
+    fd_set file_descriptors;
+
+    if (argc != 3)
     {
-        // If no ports are specified terminate connection
-        printf("Usage : ./client <-p> <port> <host>\n");
+        fprintf(stderr, "Usage: %s <IP> <port>\n", argv[0]);
         exit(1);
     }
 
-    int sockfd, portno, streamlen, max_streamlen;
-    char *hostname;
-    struct sockaddr_in serv_addr;
-    max_streamlen = 150;
-
-    if (strcmp(argv[1], "-p") == 0)
-    {
-        portno = atoi(argv[2]);
-        strcpy(hostname, "192.168.2.16");
-        printf("%s", hostname);
-    }
-    else
-    {
-        portno = atoi(argv[4]);
-        strcpy(hostname, argv[2]);
-    }
-
-    //Description of data base entry for a single host
-
-    char stream[max_streamlen];
-    //AF_INET : IPv4 connection
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-    {
-        error("Socket opening failed");
-    }
-    //Shall place n zero-valued bytes in the area pointed to by s.
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(portno);
-    serv_addr.sin_addr.s_addr = inet_addr(hostname);
-
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    {
-        error("Socket connection failed");
-    }
-
-    printf("Connecting to server... Connected!\n");
-    printf("Connected to a friend! You send first.\n");
+    connect_to_server(&connection, argv[1], argv[2]);
 
     while (TRUE)
     {
-        struct data_packet aPacket;
-        aPacket.version = htons(457);
+        FD_ZERO(&file_descriptors);
+        FD_SET(STDIN_FILENO, &file_descriptors);
+        FD_SET(connection.socket, &file_descriptors);
+        fflush(stdin);
 
-        printf("Client : ");
-        bzero(stream, max_streamlen);
-        bzero(aPacket.payload, 150);
-        fgets(stream, max_streamlen, stdin);
-
-        if (strlen(stream) > 150)
+        if (select(connection.socket + 1, &file_descriptors, NULL, NULL, NULL) < 0)
         {
-            printf("Error: Input too long.\n");
-            continue;
+            perror("Select failed.");
+            exit(1);
         }
 
-        aPacket.length = htons(strlen(stream));
-        strcpy(aPacket.payload, stream);
-
-        streamlen = write(sockfd, stream, strlen(stream));
-
-        if (streamlen < 0)
+        if (FD_ISSET(STDIN_FILENO, &file_descriptors))
         {
-            error("Socket writing failed");
+            handle_user_input(&connection);
         }
 
-        bzero(aPacket.payload, 150);
-        //Shall place n zero-valued bytes in the area pointed to by s.
-        bzero(stream, max_streamlen);
-        streamlen = read(sockfd, &aPacket, sizeof(aPacket));
-
-        if (streamlen < 0)
+        if (FD_ISSET(connection.socket, &file_descriptors))
         {
-            error("Socket reading failed");
+            handle_server_message(&connection);
         }
-        printf("Server :%s", aPacket.payload);
-        int i = strncmp("Bye", stream, 3);
-        if (i == 0)
-        {
-            break;
-        }
-        // close(sockfd);
-        return 0;
     }
+
+    close(connection.socket);
+    return 0;
 }
