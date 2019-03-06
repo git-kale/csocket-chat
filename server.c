@@ -20,8 +20,10 @@ typedef enum
     CONNECT,
     DISCONNECT,
     SUCCESS,
+    GET_USERS,
+    SET_USERNAME,
     ERROR,
-    TOO_FULL
+    LIMIT_EXCEEDED
 } status;
 
 typedef struct message
@@ -181,10 +183,78 @@ void handle_new_connection(connection_info *server_info, connection_info recieve
     }
 }
 
+void handle_client_message(connection_info reciever[], int sender)
+{
+    int read_size;
+    message msg;
+
+    if ((read_size = recv(reciever[sender].socket, &msg, sizeof(message), 0)) == 0)
+    {
+        printf("User disconnected: %s.\n", reciever[sender].username);
+        close(reciever[sender].socket);
+        reciever[sender].socket = 0;
+        send_disconnect_message(reciever, reciever[sender].username);
+    }
+    else
+    {
+
+        switch (msg.flag)
+        {
+        case GET_USERS:
+            send_user_list(reciever, sender);
+            break;
+
+        case SET_USERNAME:;
+            int i;
+            for (i = 0; i < CLIENT_LIMIT; i++)
+            {
+                if (reciever[i].socket != 0 && strcmp(reciever[i].username, msg.username) == 0)
+                {
+                    close(reciever[sender].socket);
+                    reciever[sender].socket = 0;
+                    return;
+                }
+            }
+
+            strcpy(reciever[sender].username, msg.username);
+            printf("User connected: %s\n", reciever[sender].username);
+            send_connect_message(reciever, sender);
+            break;
+
+        default:
+            fprintf(stderr, "Unknown message type received.\n");
+            break;
+        }
+    }
+}
+
+void send_user_list(connection_info *clients, int receiver)
+{
+    message msg;
+    msg.flag = GET_USERS;
+    char *list = msg.data;
+
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        
+        if (clients[i].socket != 0)
+        {
+            list = stpcpy(list, clients[i].username);
+            list = stpcpy(list, "\n");
+        }
+    }
+
+    if (send(clients[receiver].socket, &msg, sizeof(msg), 0) < 0)
+    {
+        error("Send failed");
+    }
+}
+
 void limit_exceeded(int socket)
 {
     message limit_exceeded;
-    limit_exceeded.flag = TOO_FULL;
+    limit_exceeded.flag = LIMIT_EXCEEDED;
 
     if (send(socket, &limit_exceeded, sizeof(limit_exceeded), 0) < 0)
     {
