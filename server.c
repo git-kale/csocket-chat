@@ -23,7 +23,10 @@ typedef enum
     GET_USERS,
     SET_USERNAME,
     ERROR,
-    LIMIT_EXCEEDED
+    LIMIT_EXCEEDED,
+    PUBLIC_MESSAGE,
+    PRIVATE_MESSAGE,
+    USERNAME_ERROR
 } status;
 
 typedef struct message
@@ -75,6 +78,42 @@ void error(const char *message)
     //If error occures print error message & exit
     perror(message);
     exit(1);
+}
+
+void send_user_list(connection_info *clients, int receiver)
+{
+    message msg;
+    msg.flag = GET_USERS;
+    char *list = msg.data;
+
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+
+        if (clients[i].socket != 0)
+        {
+            list = stpcpy(list, clients[i].username);
+            list = stpcpy(list, "\n");
+        }
+    }
+
+    if (send(clients[receiver].socket, &msg, sizeof(msg), 0) < 0)
+    {
+        error("Send failed");
+    }
+}
+
+void limit_exceeded(int socket)
+{
+    message limit_exceeded;
+    limit_exceeded.flag = LIMIT_EXCEEDED;
+
+    if (send(socket, &limit_exceeded, sizeof(limit_exceeded), 0) < 0)
+    {
+        error("Send failed");
+    }
+
+    close(socket);
 }
 
 void start_server(connection_info *server_info, int port)
@@ -183,6 +222,54 @@ void handle_new_connection(connection_info *server_info, connection_info recieve
     }
 }
 
+void send_public_message(connection_info reciever[], int sender, char *text)
+{
+    message msg;
+    msg.flag = PUBLIC_MESSAGE;
+    strncpy(msg.username, reciever[sender].username, 36);
+    strncpy(msg.data, text, 256);
+    int i = 0;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        if (i != sender && reciever[i].socket != 0)
+        {
+            if (send(reciever[i].socket, &msg, sizeof(msg), 0) < 0)
+            {
+                error("Send failed");
+            }
+        }
+    }
+}
+
+void send_private_message(connection_info reciever[], int sender, char *username, char *text)
+{
+    message msg;
+    msg.flag = PRIVATE_MESSAGE;
+    strncpy(msg.username, reciever[sender].username, 36);
+    strncpy(msg.data, text, 256);
+
+    int i;
+    for (i = 0; i < CLIENT_LIMIT; i++)
+    {
+        if (i != sender && reciever[i].socket != 0 && strcmp(reciever[i].username, username) == 0)
+        {
+            if (send(reciever[i].socket, &msg, sizeof(msg), 0) < 0)
+            {
+                error("Send failed");
+            }
+            return;
+        }
+    }
+
+    msg.flag = USERNAME_ERROR;
+    sprintf(msg.data, "Username \"%s\" does not exist or is not logged in.", username);
+
+    if (send(reciever[sender].socket, &msg, sizeof(msg), 0) < 0)
+    {
+        error("Send failed");
+    }
+}
+
 void handle_client_message(connection_info reciever[], int sender)
 {
     int read_size;
@@ -193,7 +280,7 @@ void handle_client_message(connection_info reciever[], int sender)
         printf("User disconnected: %s.\n", reciever[sender].username);
         close(reciever[sender].socket);
         reciever[sender].socket = 0;
-        send_disconnect_message(reciever, reciever[sender].username);
+        stop_connection_message(reciever, reciever[sender].username);
     }
     else
     {
@@ -215,10 +302,17 @@ void handle_client_message(connection_info reciever[], int sender)
                     return;
                 }
             }
+        case PUBLIC_MESSAGE:
+            send_public_message(reciever, sender, msg.data);
+            break;
+
+        case PRIVATE_MESSAGE:
+            send_private_message(reciever, sender, msg.username, msg.data);
+            break;
 
             strcpy(reciever[sender].username, msg.username);
             printf("User connected: %s\n", reciever[sender].username);
-            send_connect_message(reciever, sender);
+            start_connection_message(reciever, sender);
             break;
 
         default:
@@ -228,40 +322,25 @@ void handle_client_message(connection_info reciever[], int sender)
     }
 }
 
-void send_user_list(connection_info *clients, int receiver)
+void trim_input(char *text)
 {
-    message msg;
-    msg.flag = GET_USERS;
-    char *list = msg.data;
-
-    int i;
-    for (i = 0; i < CLIENT_LIMIT; i++)
+    int len = strlen(text) - 1;
+    if (text[len] == '\n')
     {
-        
-        if (clients[i].socket != 0)
-        {
-            list = stpcpy(list, clients[i].username);
-            list = stpcpy(list, "\n");
-        }
-    }
-
-    if (send(clients[receiver].socket, &msg, sizeof(msg), 0) < 0)
-    {
-        error("Send failed");
+        text[len] = '\0';
     }
 }
 
-void limit_exceeded(int socket)
+void handle_user_input(connection_info reciever[])
 {
-    message limit_exceeded;
-    limit_exceeded.flag = LIMIT_EXCEEDED;
+    char input[256];
+    fgets(input, sizeof(input), stdin);
+    trim_input(input);
 
-    if (send(socket, &limit_exceeded, sizeof(limit_exceeded), 0) < 0)
+    if (input[0] == 'q')
     {
-        error("Send failed");
+        stop_server(reciever);
     }
-
-    close(socket);
 }
 
 int main(int argc, char const *argv[])
